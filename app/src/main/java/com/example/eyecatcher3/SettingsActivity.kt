@@ -1,8 +1,6 @@
 package com.example.eyecatcher3
 
-import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.MenuItem
 import android.widget.Button
@@ -11,64 +9,85 @@ import android.widget.Switch
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 
 class SettingsActivity : AppCompatActivity() {
 
-    private lateinit var sharedPreferences: SharedPreferences
+    private lateinit var auth: FirebaseAuth
+    private lateinit var db: FirebaseFirestore
+    private lateinit var distanceEditText: EditText
+    private lateinit var confirmDistanceButton: Button
+    private lateinit var notificationSwitch: Switch
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
 
-        // Configurar la Toolbar como la ActionBar de la actividad
+        auth = FirebaseAuth.getInstance()
+        db = FirebaseFirestore.getInstance()
+
         val toolbar: Toolbar = findViewById(R.id.toolbar)
         setSupportActionBar(toolbar)
-
-        // Habilitar la flecha de "Atrás" en la Toolbar
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.title = ""
 
-        // Inicializar SharedPreferences
-        sharedPreferences = getSharedPreferences("SettingsPreferences", Context.MODE_PRIVATE)
-
-        val distanceEditText: EditText = findViewById(R.id.distanceEditText)
-        val confirmDistanceButton: Button = findViewById(R.id.confirmDistanceButton)
-        val notificationSwitch: Switch = findViewById(R.id.notificationSwitch)
+        distanceEditText = findViewById(R.id.distanceEditText)
+        confirmDistanceButton = findViewById(R.id.confirmDistanceButton)
+        notificationSwitch = findViewById(R.id.notificationSwitch)
         val logoutButton: Button = findViewById(R.id.logoutButton)
 
-        // Recuperar la distancia guardada previamente
-        val savedDistance = sharedPreferences.getInt("activationDistance", -1)
-        if (savedDistance != -1) {
-            distanceEditText.setText(savedDistance.toString())
-        }
+        val currentUser = auth.currentUser
+        if (currentUser != null) {
+            val userId = currentUser.uid
 
-        // Configurar el botón de confirmar distancia
-        confirmDistanceButton.setOnClickListener {
-            val distanceText = distanceEditText.text.toString()
-            val distance = distanceText.toIntOrNull()
-            if (distance != null && distance in 0..300) {
-                // Guardar la distancia en SharedPreferences
-                sharedPreferences.edit().putInt("activationDistance", distance).apply()
-                Toast.makeText(this, "Distancia de activación guardada: $distance cm", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "Por favor, ingresa un valor entre 0 y 300 cm", Toast.LENGTH_SHORT).show()
+            // Recuperar datos guardados en Firestore desde la colección "eventos"
+            db.collection("eventos").document(userId).get()
+                .addOnSuccessListener { document ->
+                    if (document != null) {
+                        val notificationState = document.getBoolean("notificationState") ?: false
+                        val distance = document.getLong("distance")?.toInt() ?: 0
+                        notificationSwitch.isChecked = notificationState
+                        distanceEditText.setText(distance.toString())
+                    }
+                }
+                .addOnFailureListener { e ->
+                    Toast.makeText(this, "Error al cargar configuración: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+
+            // Guardar el estado del switch "Notificaciones"
+            notificationSwitch.setOnCheckedChangeListener { _, isChecked ->
+                db.collection("eventos").document(userId)
+                    .update("notificationState", isChecked)
+                    .addOnSuccessListener {
+                        val message = if (isChecked) "Notificaciones activadas" else "Notificaciones desactivadas"
+                        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+                    }
+                    .addOnFailureListener { e ->
+                        Toast.makeText(this, "Error al guardar estado de notificaciones: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
             }
-        }
 
-        // Recuperar el estado guardado del Switch de notificaciones
-        val isNotificationsEnabled = sharedPreferences.getBoolean("notificationsState", false)
-        notificationSwitch.isChecked = isNotificationsEnabled
+            // Guardar la distancia al hacer clic en Confirmar Distancia
+            confirmDistanceButton.setOnClickListener {
+                val distanceText = distanceEditText.text.toString()
+                val distance = distanceText.toIntOrNull()
 
-        // Configurar el Switch de notificaciones
-        notificationSwitch.setOnCheckedChangeListener { _, isChecked ->
-            // Guardar el estado del Switch en SharedPreferences
-            sharedPreferences.edit().putBoolean("notificationsState", isChecked).apply()
-
-            if (isChecked) {
-                Toast.makeText(this, "Notificaciones activadas", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "Notificaciones desactivadas", Toast.LENGTH_SHORT).show()
+                if (distance != null && distance in 1..300) {
+                    db.collection("eventos").document(userId)
+                        .update("distance", distance)
+                        .addOnSuccessListener {
+                            Toast.makeText(this, "Distancia guardada", Toast.LENGTH_SHORT).show()
+                        }
+                        .addOnFailureListener { e ->
+                            Toast.makeText(this, "Error al guardar la distancia: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                } else {
+                    Toast.makeText(this, "Por favor, ingresa una distancia válida (1-300 cm)", Toast.LENGTH_SHORT).show()
+                }
             }
+        } else {
+            Toast.makeText(this, "Usuario no autenticado", Toast.LENGTH_SHORT).show()
         }
 
         // Configurar el botón de cerrar sesión
@@ -84,7 +103,6 @@ class SettingsActivity : AppCompatActivity() {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             android.R.id.home -> {
-                // Redirigir al usuario a la página de inicio (HomePageActivity)
                 finish()
                 true
             }
@@ -92,10 +110,3 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 }
-
-
-
-
-
-
-

@@ -1,49 +1,69 @@
 package com.example.eyecatcher3
 
-import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import android.os.Bundle
+import android.util.Log
 import android.widget.Button
 import android.widget.Switch
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 
 class HomePageActivity : AppCompatActivity() {
 
-    private lateinit var sharedPreferences: SharedPreferences
+    private lateinit var auth: FirebaseAuth
+    private lateinit var db: FirebaseFirestore
+    private lateinit var alarmSwitch: Switch
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_home)
 
-        sharedPreferences = getSharedPreferences("SettingsPreferences", Context.MODE_PRIVATE)
-        val alarmSwitch: Switch = findViewById(R.id.alarmSwitch)
+        auth = FirebaseAuth.getInstance()
+        db = FirebaseFirestore.getInstance()
+        alarmSwitch = findViewById(R.id.alarmSwitch)
         val settingsButton: Button = findViewById(R.id.settingsButton)
 
-        // Recuperar el estado guardado del Switch de alarma
-        val isAlarmEnabled = sharedPreferences.getBoolean("alarmState", false)
-        alarmSwitch.isChecked = isAlarmEnabled
+        val currentUser = auth.currentUser
+        if (currentUser != null) {
+            val userId = currentUser.uid
 
-        // Configurar el Switch de estado de alarma
-        alarmSwitch.setOnCheckedChangeListener { _, isChecked ->
-            // Guardar el estado del Switch en SharedPreferences
-            sharedPreferences.edit().putBoolean("alarmState", isChecked).apply()
+            // Recuperar el estado de alarma desde "eventos"
+            db.collection("eventos").document(userId).get()
+                .addOnSuccessListener { document ->
+                    if (document != null && document.contains("alarmState")) {
+                        val alarmState = document.getBoolean("alarmState") ?: false
+                        alarmSwitch.isChecked = alarmState
+                    }
+                }
+                .addOnFailureListener { e ->
+                    Toast.makeText(this, "Error al obtener el estado de alarma: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
 
-            if (isChecked) {
-                Toast.makeText(this, "Alarma activada", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "Alarma desactivada", Toast.LENGTH_SHORT).show()
+            // Guardar el estado del switch de alarma cuando cambia
+            alarmSwitch.setOnCheckedChangeListener { _, isChecked ->
+                val data = mapOf("alarmState" to isChecked)
+                db.collection("eventos").document(userId)
+                    .set(data, SetOptions.merge())
+                    .addOnSuccessListener {
+                        val message = if (isChecked) "Alarma activada" else "Alarma desactivada"
+                        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+                    }
+                    .addOnFailureListener { e ->
+                        Toast.makeText(this, "Error al guardar el estado: ${e.message}", Toast.LENGTH_SHORT).show()
+                        Log.e("FirestoreUpdate", "Error al guardar alarmState en eventos: ${e.message}")
+                    }
             }
+        } else {
+            Toast.makeText(this, "Usuario no autenticado", Toast.LENGTH_SHORT).show()
         }
 
-        // Configurar el botón de configuración
+        // Configuración del botón de ajustes
         settingsButton.setOnClickListener {
             val intent = Intent(this, SettingsActivity::class.java)
             startActivity(intent)
         }
     }
 }
-
-
-
